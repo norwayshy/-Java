@@ -1,0 +1,421 @@
+import javax.swing.*;
+import javax.swing.filechooser.FileNameExtensionFilter;
+import java.awt.*;
+import java.io.*;
+import java.util.*;
+import java.util.zip.*;
+
+// 哈夫曼节点类
+class HuffmanNode implements Comparable<HuffmanNode> {
+    char character;
+    int frequency;
+    HuffmanNode left, right;
+
+    HuffmanNode(char character, int frequency) {
+        this.character = character;
+        this.frequency = frequency;
+    }
+
+    @Override
+    public int compareTo(HuffmanNode o) {
+        return Integer.compare(this.frequency, o.frequency);
+    }
+
+    // 打印哈夫曼树
+    public void printTree(String indent, JTextArea logArea) {
+        if (this != null) {
+            if (this.character != '\0') {
+                logArea.append(indent + "叶节点: " + character + " (频率: " + frequency + ")\n");
+            } else {
+                logArea.append(indent + "内部节点 (频率: " + frequency + ")\n");
+            }
+
+            if (this.left != null) {
+                this.left.printTree(indent + "  ", logArea);
+            }
+
+            if (this.right != null) {
+                this.right.printTree(indent + "  ", logArea);
+            }
+        }
+    }
+}
+
+// 主程序类
+public class HuffmanXORApp extends JFrame {
+    private JTextArea logArea;
+    private JButton encodeButton, decodeButton, selectFileButton, compressButton, decompressButton;
+    private File selectedFile;
+
+    public HuffmanXORApp() {
+        setTitle("哈夫曼编码与加密工具");
+        setSize(600, 400);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setLayout(new BorderLayout());
+
+        // 创建组件
+        logArea = new JTextArea();
+        logArea.setEditable(false);
+        JScrollPane scrollPane = new JScrollPane(logArea);
+
+        encodeButton = new JButton("编码");
+        decodeButton = new JButton("解码");
+        selectFileButton = new JButton("选择文件");
+        compressButton = new JButton("压缩");
+        decompressButton = new JButton("解压");
+
+        JPanel buttonPanel = new JPanel(new FlowLayout());
+        buttonPanel.add(selectFileButton);
+        buttonPanel.add(encodeButton);
+        buttonPanel.add(decodeButton);
+        buttonPanel.add(compressButton);
+        buttonPanel.add(decompressButton);
+
+        // 添加组件
+        add(scrollPane, BorderLayout.CENTER);
+        add(buttonPanel, BorderLayout.SOUTH);
+
+        // 初始化按钮状态
+        encodeButton.setEnabled(false);
+        decodeButton.setEnabled(false);
+        compressButton.setEnabled(false);
+        decompressButton.setEnabled(false);
+
+        // 添加按钮事件
+        selectFileButton.addActionListener(e -> selectFile());
+        encodeButton.addActionListener(e -> encodeFile());
+        decodeButton.addActionListener(e -> decodeFile());
+        compressButton.addActionListener(e -> compressFile());
+        decompressButton.addActionListener(e -> decompressFile());
+    }
+
+    private void selectFile() {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setCurrentDirectory(new File("."));  // 设置当前目录为当前工作目录
+
+        // 设置文件过滤器，只显示 .source 和 .code 文件
+        FileNameExtensionFilter filter = new FileNameExtensionFilter("Zip, Souce and Code files", "souce", "code","zip");
+        fileChooser.setFileFilter(filter);
+
+        int returnValue = fileChooser.showOpenDialog(this);
+        if (returnValue == JFileChooser.APPROVE_OPTION) {
+            selectedFile = fileChooser.getSelectedFile();
+            String fileName = selectedFile.getName();
+
+            if (fileName.endsWith(".souce")) {
+                log("已选择源文件：" + fileName);
+                encodeButton.setEnabled(true);
+                decodeButton.setEnabled(false);
+                compressButton.setEnabled(true);
+                decompressButton.setEnabled(false);
+            } else if (fileName.endsWith(".code")) {
+                log("已选择编码文件：" + fileName);
+                encodeButton.setEnabled(false);
+                decodeButton.setEnabled(true);
+                compressButton.setEnabled(true);
+                decompressButton.setEnabled(false);
+            } else if (fileName.endsWith(".zip")) {
+                log("已选择压缩文件：" + fileName);
+                encodeButton.setEnabled(false);
+                decodeButton.setEnabled(false);
+                compressButton.setEnabled(false);
+                decompressButton.setEnabled(true);
+            } else {
+                log("无效文件类型！");
+                encodeButton.setEnabled(false);
+                decodeButton.setEnabled(false);
+                compressButton.setEnabled(false);
+                decompressButton.setEnabled(false);
+            }
+        }
+    }
+    private void encodeFile() {
+        if (selectedFile == null) {
+            showError("未选择文件！");
+            return;
+        }
+
+        boolean encrypt = JOptionPane.showConfirmDialog(this, "是否加密文件？", "加密选项", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION;
+        String key = null;
+
+        if (encrypt) {
+            key = JOptionPane.showInputDialog(this, "请输入加密密钥：");
+            if (key == null || key.isEmpty()) {
+                showError("密钥不能为空！");
+                return;
+            }
+        }
+
+        try {
+            // 读取文件内容，包括空格和换行符
+            String content = readFile(selectedFile);
+
+            // 计算频率
+            Map<Character, Integer> frequencies = calculateFrequencies(content);
+
+            // 构建哈夫曼树
+            HuffmanNode root = buildHuffmanTree(frequencies);
+
+            // 生成哈夫曼编码
+            Map<Character, String> huffmanCodes = generateCodes(root);
+
+            // 打印哈夫曼树
+            logArea.setText(""); // 清空日志区域
+            log("哈夫曼树结构：");
+            root.printTree("", logArea);
+
+            // 编码内容
+            String encodedContent = encodeContent(content, huffmanCodes);
+
+            // 如果加密，则进行加密
+            if (encrypt) {
+                encodedContent = xorEncryptDecrypt(encodedContent, key);
+            }
+
+            // 保存编码文件
+            String outputFileName = replaceFileExtension(selectedFile, ".code");
+            saveEncodedFile(outputFileName, frequencies, encodedContent, encrypt);
+
+            log("编码完成！保存到：" + outputFileName);
+        } catch (IOException e) {
+            showError("编码失败：" + e.getMessage());
+        }
+    }
+
+
+    private void decodeFile() {
+        if (selectedFile == null) {
+            showError("未选择文件！");
+            return;
+        }
+
+        try {
+            BufferedReader reader = new BufferedReader(new FileReader(selectedFile));
+            boolean encrypted = reader.readLine().equals("ENCRYPTED");
+            Map<Character, Integer> frequencies = new HashMap<>();
+
+            String line;
+            while (!(line = reader.readLine()).equals("ENCODED")) {
+                if (line.trim().isEmpty()) continue;  // 忽略空行
+
+                String[] parts = line.split(":");
+                if (parts.length == 2) {
+                    char character = parts[0].charAt(0);  // 处理字符
+                    int frequency = Integer.parseInt(parts[1].trim());  // 频率
+                    frequencies.put(character, frequency);
+                }
+            }
+
+            StringBuilder encodedContent = new StringBuilder();
+            while ((line = reader.readLine()) != null) {
+                encodedContent.append(line);  // 读取编码内容
+            }
+            reader.close();
+
+            // 如果文件是加密的，先解密
+            if (encrypted) {
+                String key = JOptionPane.showInputDialog(this, "请输入解密密钥：");
+                if (key == null || key.isEmpty()) {
+                    showError("密钥不能为空！");
+                    return;
+                }
+                encodedContent = new StringBuilder(xorEncryptDecrypt(encodedContent.toString(), key));
+            }
+
+            // 使用频率表构建哈夫曼树
+            HuffmanNode root = buildHuffmanTree(frequencies);
+            String decodedContent = decodeContent(encodedContent.toString(), root);
+
+            // 保存解码后的内容
+            String outputFileName = replaceFileExtension(selectedFile, ".decode");
+            writeFile(outputFileName, decodedContent);
+
+            log("解码完成！保存到：" + outputFileName);
+        } catch (IOException e) {
+            showError("解码失败：" + e.getMessage());
+        }
+    }
+
+    private void compressFile() {
+        if (selectedFile == null) {
+            showError("未选择文件！");
+            return;
+        }
+
+        try {
+            //String outputFileName = replaceFileExtension(selectedFile, ".zip");
+            String outputFileName = selectedFile + ".zip";
+            try (FileInputStream fis = new FileInputStream(selectedFile);
+                 FileOutputStream fos = new FileOutputStream(outputFileName);
+                 GZIPOutputStream gzipOS = new GZIPOutputStream(fos)) {
+
+                byte[] buffer = new byte[1024];
+                int length;
+                while ((length = fis.read(buffer)) > 0) {
+                    gzipOS.write(buffer, 0, length);
+                }
+            }
+            log("文件压缩完成！保存到：" + outputFileName);
+        } catch (IOException e) {
+            showError("压缩失败：" + e.getMessage());
+        }
+    }
+
+    private void decompressFile() {
+        if (selectedFile == null) {
+            showError("未选择文件！");
+            return;
+        }
+
+        try {
+            String outputFileName = replaceFileExtension(selectedFile, "");
+            try (FileInputStream fis = new FileInputStream(selectedFile);
+                 GZIPInputStream gis = new GZIPInputStream(fis);
+                 FileOutputStream fos = new FileOutputStream(outputFileName)) {
+
+                byte[] buffer = new byte[1024];
+                int length;
+                while ((length = gis.read(buffer)) > 0) {
+                    fos.write(buffer, 0, length);
+                }
+            }
+            log("文件解压完成！保存到：" + outputFileName);
+        } catch (IOException e) {
+            showError("解压失败：" + e.getMessage());
+        }
+    }
+
+    private String xorEncryptDecrypt(String content, String key) {
+        StringBuilder result = new StringBuilder();
+        for (int i = 0; i < content.length(); i++) {
+            result.append((char) (content.charAt(i) ^ key.charAt(i % key.length())));
+        }
+        return result.toString();
+    }
+
+    private Map<Character, Integer> calculateFrequencies(String content) {
+        Map<Character, Integer> frequencies = new HashMap<>();
+
+        // 替换空格和换行符为特殊字符
+        content = content.replace(" ", "\\s").replace("\n", "\\n");
+
+        // 统计频率
+        for (char c : content.toCharArray()) {
+            frequencies.put(c, frequencies.getOrDefault(c, 0) + 1);
+        }
+        return frequencies;
+    }
+
+    private HuffmanNode buildHuffmanTree(Map<Character, Integer> frequencies) {
+        PriorityQueue<HuffmanNode> queue = new PriorityQueue<>();
+        for (Map.Entry<Character, Integer> entry : frequencies.entrySet()) {
+            queue.add(new HuffmanNode(entry.getKey(), entry.getValue()));
+        }
+
+        while (queue.size() > 1) {
+            HuffmanNode left = queue.poll();
+            HuffmanNode right = queue.poll();
+            HuffmanNode parent = new HuffmanNode('\0', left.frequency + right.frequency);
+            parent.left = left;
+            parent.right = right;
+            queue.add(parent);
+        }
+        return queue.poll();
+    }
+
+    private Map<Character, String> generateCodes(HuffmanNode root) {
+        Map<Character, String> codes = new HashMap<>();
+        generateCodesRecursive(root, "", codes);
+        return codes;
+    }
+
+    private void generateCodesRecursive(HuffmanNode node, String code, Map<Character, String> codes) {
+        if (node == null) return;
+        if (node.character != '\0') codes.put(node.character, code);
+
+        generateCodesRecursive(node.left, code + "0", codes);
+        generateCodesRecursive(node.right, code + "1", codes);
+    }
+    private String encodeContent(String content, Map<Character, String> codes) {
+        // 替换空格和换行符
+        content = content.replace(" ", "\\s").replace("\n", "\\n");
+
+        StringBuilder encoded = new StringBuilder();
+        for (char c : content.toCharArray()) {
+            encoded.append(codes.get(c));  // 使用哈夫曼编码
+        }
+        return encoded.toString();
+    }
+
+    private String decodeContent(String encodedContent, HuffmanNode root) {
+        StringBuilder decoded = new StringBuilder();
+        HuffmanNode current = root;
+
+        // 逐字符解码
+        for (char c : encodedContent.toCharArray()) {
+            current = (c == '0') ? current.left : current.right;
+            if (current.left == null && current.right == null) {
+                decoded.append(current.character);  // 解码字符
+                current = root;
+            }
+        }
+
+        // 恢复空格和换行符
+        String decodedContent = decoded.toString();
+        decodedContent = decodedContent.replace("\\s", " ").replace("\\n", "\n");
+
+        return decodedContent;
+    }
+
+    private void saveEncodedFile(String fileName, Map<Character, Integer> frequencies, String encodedContent, boolean encrypted) throws IOException {
+        BufferedWriter writer = new BufferedWriter(new FileWriter(fileName));
+        writer.write(encrypted ? "ENCRYPTED\n" : "PLAIN\n");
+
+        // 写入频率信息
+        for (Map.Entry<Character, Integer> entry : frequencies.entrySet()) {
+            writer.write(entry.getKey() + ":" + entry.getValue() + "\n");
+        }
+
+        writer.write("ENCODED\n");
+        writer.write(encodedContent);  // 保存编码内容
+
+        writer.close();
+    }
+
+    private String readFile(File file) throws IOException {
+        BufferedReader reader = new BufferedReader(new FileReader(file));
+        StringBuilder content = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            content.append(line).append("\n");
+        }
+        reader.close();
+        return content.toString().trim();
+    }
+
+    private void writeFile(String fileName, String content) throws IOException {
+        BufferedWriter writer = new BufferedWriter(new FileWriter(fileName));
+        writer.write(content);
+        writer.close();
+    }
+
+    private String replaceFileExtension(File file, String newExtension) {
+        String fileName = file.getName();
+        return file.getParent() + "/" + fileName.substring(0, fileName.lastIndexOf('.')) + newExtension;
+    }
+
+    private void log(String message) {
+        logArea.append(message + "\n");
+    }
+
+    private void showError(String message) {
+        JOptionPane.showMessageDialog(this, message, "错误", JOptionPane.ERROR_MESSAGE);
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> {
+            HuffmanXORApp app = new HuffmanXORApp();
+            app.setVisible(true);
+        });
+    }
+}
