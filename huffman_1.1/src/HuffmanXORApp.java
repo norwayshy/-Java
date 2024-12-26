@@ -46,6 +46,7 @@ public class HuffmanXORApp extends JFrame {
     private JTextArea logArea;
     private JButton encodeButton, decodeButton, selectFileButton, compressButton, decompressButton;
     private File selectedFile;
+    private JButton createFileButton;
 
     public HuffmanXORApp() {
         setTitle("哈夫曼编码与加密工具");
@@ -63,6 +64,7 @@ public class HuffmanXORApp extends JFrame {
         selectFileButton = new JButton("选择文件");
         compressButton = new JButton("压缩");
         decompressButton = new JButton("解压");
+        createFileButton = new JButton("新建文件");
 
         JPanel buttonPanel = new JPanel(new FlowLayout());
         buttonPanel.add(selectFileButton);
@@ -70,6 +72,7 @@ public class HuffmanXORApp extends JFrame {
         buttonPanel.add(decodeButton);
         buttonPanel.add(compressButton);
         buttonPanel.add(decompressButton);
+        buttonPanel.add(createFileButton); // 添加新按钮
 
         // 添加组件
         add(scrollPane, BorderLayout.CENTER);
@@ -87,6 +90,7 @@ public class HuffmanXORApp extends JFrame {
         decodeButton.addActionListener(e -> decodeFile());
         compressButton.addActionListener(e -> compressFile());
         decompressButton.addActionListener(e -> decompressFile());
+        createFileButton.addActionListener(e -> createNewFile());
     }
 
     private void selectFile() {
@@ -129,6 +133,52 @@ public class HuffmanXORApp extends JFrame {
             }
         }
     }
+    private void createNewFile() {
+        // 提示用户选择文件类型（.souce 或 .code）
+        String[] options = {".souce", ".code"};
+        String fileExtension = (String) JOptionPane.showInputDialog(this, "选择文件类型", "新建文件", JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+
+        if (fileExtension == null) {
+            return; // 用户取消选择
+        }
+
+        // 提示用户输入文件名
+        String fileName = JOptionPane.showInputDialog(this, "请输入文件名:");
+        if (fileName == null || fileName.isEmpty()) {
+            showError("文件名不能为空！");
+            return;
+        }
+
+        // 设置文件名和扩展名
+        File newFile = new File(fileName + fileExtension);
+
+        // 打开一个新的窗口供用户输入文本
+        JTextArea textArea = new JTextArea(20, 40); // 文本输入区域
+        JScrollPane scrollPane = new JScrollPane(textArea);
+        int option = JOptionPane.showConfirmDialog(this, scrollPane, "请输入文本", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (option == JOptionPane.OK_OPTION) {
+            try {
+                // 保存文本到文件
+                String text = textArea.getText();
+                saveFile(newFile, text);
+                log("文件已保存：" + newFile.getAbsolutePath());
+            } catch (IOException e) {
+                showError("保存文件失败：" + e.getMessage());
+            }
+        }
+    }
+    private void saveFile(File file, String content) throws IOException {
+        String fileName = file.getName();
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+            if (fileName.endsWith(".code")) {
+                content = "PLAIN\n" + content;
+            }
+            writer.write(content);
+        }
+    }
+
+
     private void encodeFile() {
         if (selectedFile == null) {
             showError("未选择文件！");
@@ -164,23 +214,43 @@ public class HuffmanXORApp extends JFrame {
             log("哈夫曼树结构：");
             root.printTree("", logArea);
 
+            // 输出每个字符的哈夫曼编码
+            log("每个字符的哈夫曼编码：");
+            for (Map.Entry<Character, String> entry : huffmanCodes.entrySet()) {
+                log(entry.getKey() + ": " + entry.getValue());
+            }
+
             // 编码内容
             String encodedContent = encodeContent(content, huffmanCodes);
+            //输出编码结果
+            log("编码结果：\n" + encodedContent);
 
             // 如果加密，则进行加密
             if (encrypt) {
                 encodedContent = xorEncryptDecrypt(encodedContent, key);
             }
 
-            // 保存编码文件
+            // **保存频率表到 .tree 文件**【修改】
+            String treeFileName = replaceFileExtension(selectedFile, ".tree");
+            saveFrequencyTable(treeFileName, frequencies);
+
+            // 保存编码文件，只保存编码内容，不保存频率表
             String outputFileName = replaceFileExtension(selectedFile, ".code");
-            saveEncodedFile(outputFileName, frequencies, encodedContent, encrypt);
+            saveEncodedFile(outputFileName, encodedContent, encrypt);
 
             log("编码完成！保存到：" + outputFileName);
         } catch (IOException e) {
             showError("编码失败：" + e.getMessage());
         }
     }
+    private void saveFrequencyTable(String fileName, Map<Character, Integer> frequencies) throws IOException {
+        BufferedWriter writer = new BufferedWriter(new FileWriter(fileName));
+        for (Map.Entry<Character, Integer> entry : frequencies.entrySet()) {
+            writer.write(entry.getKey() + ":" + entry.getValue() + "\n");
+        }
+        writer.close();
+    }
+
 
 
     private void decodeFile() {
@@ -189,50 +259,50 @@ public class HuffmanXORApp extends JFrame {
             return;
         }
 
-        try {
-            BufferedReader reader = new BufferedReader(new FileReader(selectedFile));
-            boolean encrypted = reader.readLine().equals("ENCRYPTED");
-            Map<Character, Integer> frequencies = new HashMap<>();
+        // **手动选择 .tree 文件**【修改】
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setCurrentDirectory(new File("."));  // 设置当前目录为当前工作目录
+        FileNameExtensionFilter filter = new FileNameExtensionFilter("Tree files", "tree");
+        fileChooser.setFileFilter(filter);
 
-            String line;
-            while (!(line = reader.readLine()).equals("ENCODED")) {
-                if (line.trim().isEmpty()) continue;  // 忽略空行
+        int returnValue = fileChooser.showOpenDialog(this);
+        if (returnValue == JFileChooser.APPROVE_OPTION) {
+            File treeFile = fileChooser.getSelectedFile();
+            Map<Character, Integer> frequencies = readFrequencyTable(treeFile);
 
-                String[] parts = line.split(":");
-                if (parts.length == 2) {
-                    char character = parts[0].charAt(0);  // 处理字符
-                    int frequency = Integer.parseInt(parts[1].trim());  // 频率
-                    frequencies.put(character, frequency);
+            try {
+                BufferedReader reader = new BufferedReader(new FileReader(selectedFile));
+                boolean encrypted = reader.readLine().equals("ENCRYPTED");
+                StringBuilder encodedContent = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    encodedContent.append(line);  // 读取编码内容
                 }
-            }
+                reader.close();
 
-            StringBuilder encodedContent = new StringBuilder();
-            while ((line = reader.readLine()) != null) {
-                encodedContent.append(line);  // 读取编码内容
-            }
-            reader.close();
-
-            // 如果文件是加密的，先解密
-            if (encrypted) {
-                String key = JOptionPane.showInputDialog(this, "请输入解密密钥：");
-                if (key == null || key.isEmpty()) {
-                    showError("密钥不能为空！");
-                    return;
+                // 如果文件是加密的，先解密
+                if (encrypted) {
+                    String key = JOptionPane.showInputDialog(this, "请输入解密密钥：");
+                    if (key == null || key.isEmpty()) {
+                        showError("密钥不能为空！");
+                        return;
+                    }
+                    encodedContent = new StringBuilder(xorEncryptDecrypt(encodedContent.toString(), key));
                 }
-                encodedContent = new StringBuilder(xorEncryptDecrypt(encodedContent.toString(), key));
+
+                // 使用频率表构建哈夫曼树
+                HuffmanNode root = buildHuffmanTree(frequencies);
+                String decodedContent = decodeContent(encodedContent.toString(), root);
+
+                // 保存解码后的内容
+                String outputFileName = replaceFileExtension(selectedFile, ".decode");
+                writeFile(outputFileName, decodedContent);
+
+                log("解码结果：\n" + decodedContent);
+                log("解码完成！保存到：" + outputFileName);
+            } catch (IOException e) {
+                showError("解码失败：" + e.getMessage());
             }
-
-            // 使用频率表构建哈夫曼树
-            HuffmanNode root = buildHuffmanTree(frequencies);
-            String decodedContent = decodeContent(encodedContent.toString(), root);
-
-            // 保存解码后的内容
-            String outputFileName = replaceFileExtension(selectedFile, ".decode");
-            writeFile(outputFileName, decodedContent);
-
-            log("解码完成！保存到：" + outputFileName);
-        } catch (IOException e) {
-            showError("解码失败：" + e.getMessage());
         }
     }
 
@@ -367,20 +437,15 @@ public class HuffmanXORApp extends JFrame {
         return decodedContent;
     }
 
-    private void saveEncodedFile(String fileName, Map<Character, Integer> frequencies, String encodedContent, boolean encrypted) throws IOException {
+    private void saveEncodedFile(String fileName, String encodedContent, boolean encrypted) throws IOException {
         BufferedWriter writer = new BufferedWriter(new FileWriter(fileName));
         writer.write(encrypted ? "ENCRYPTED\n" : "PLAIN\n");
 
-        // 写入频率信息
-        for (Map.Entry<Character, Integer> entry : frequencies.entrySet()) {
-            writer.write(entry.getKey() + ":" + entry.getValue() + "\n");
-        }
-
-        writer.write("ENCODED\n");
         writer.write(encodedContent);  // 保存编码内容
 
         writer.close();
     }
+
 
     private String readFile(File file) throws IOException {
         BufferedReader reader = new BufferedReader(new FileReader(file));
@@ -392,6 +457,34 @@ public class HuffmanXORApp extends JFrame {
         reader.close();
         return content.toString().trim();
     }
+    // **读取频率表的方法**
+    private Map<Character, Integer> readFrequencyTable(File file) {
+        Map<Character, Integer> frequencies = new HashMap<>();
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.trim().isEmpty()) continue;
+
+                String[] parts = line.split(":");
+                if (parts.length == 2) {
+                    try {
+                        char character = parts[0].charAt(0);
+                        int frequency = Integer.parseInt(parts[1].trim());
+                        frequencies.put(character, frequency);
+                    } catch (NumberFormatException e) {
+                        // 忽略格式错误的行
+                        continue;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            // 可以在此处显示错误提示或记录日志
+            showError("读取频率表文件时出错：" + e.getMessage());
+        }
+        return frequencies;
+    }
+
 
     private void writeFile(String fileName, String content) throws IOException {
         BufferedWriter writer = new BufferedWriter(new FileWriter(fileName));
