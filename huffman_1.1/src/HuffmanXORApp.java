@@ -184,6 +184,17 @@ public class HuffmanXORApp extends JFrame {
             showError("未选择文件！");
             return;
         }
+        try {
+            // 读取文件内容，包括空格和换行符
+            String content = readFile(selectedFile);
+
+            if (content.isEmpty()) {
+                showError("文件内容为空，无法编码！");
+                return;
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
         boolean encrypt = JOptionPane.showConfirmDialog(this, "是否加密文件？", "加密选项", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION;
         String key = null;
@@ -244,12 +255,22 @@ public class HuffmanXORApp extends JFrame {
         }
     }
     private void saveFrequencyTable(String fileName, Map<Character, Integer> frequencies) throws IOException {
-        BufferedWriter writer = new BufferedWriter(new FileWriter(fileName));
-        for (Map.Entry<Character, Integer> entry : frequencies.entrySet()) {
-            writer.write(entry.getKey() + ":" + entry.getValue() + "\n");
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(fileName))) {
+            for (Map.Entry<Character, Integer> entry : frequencies.entrySet()) {
+                char character = entry.getKey();
+                int frequency = entry.getValue();
+
+                // 将换行符替换为 "NL" 标记
+                if (character == '\n') {
+                    writer.write("NL" + ":" + frequency + "\n");
+                } else {
+                    writer.write(character + ":" + frequency + "\n");
+                }
+            }
         }
-        writer.close();
     }
+
+
 
 
 
@@ -365,16 +386,12 @@ public class HuffmanXORApp extends JFrame {
 
     private Map<Character, Integer> calculateFrequencies(String content) {
         Map<Character, Integer> frequencies = new HashMap<>();
-
-        // 替换空格和换行符为特殊字符
-        content = content.replace(" ", "\\s").replace("\n", "\\n");
-
-        // 统计频率
         for (char c : content.toCharArray()) {
             frequencies.put(c, frequencies.getOrDefault(c, 0) + 1);
         }
         return frequencies;
     }
+
 
     private HuffmanNode buildHuffmanTree(Map<Character, Integer> frequencies) {
         PriorityQueue<HuffmanNode> queue = new PriorityQueue<>();
@@ -407,35 +424,35 @@ public class HuffmanXORApp extends JFrame {
         generateCodesRecursive(node.right, code + "1", codes);
     }
     private String encodeContent(String content, Map<Character, String> codes) {
-        // 替换空格和换行符
-        content = content.replace(" ", "\\s").replace("\n", "\\n");
-
         StringBuilder encoded = new StringBuilder();
         for (char c : content.toCharArray()) {
-            encoded.append(codes.get(c));  // 使用哈夫曼编码
+            if (codes.containsKey(c)) {
+                encoded.append(codes.get(c)); // 使用哈夫曼编码
+            } else {
+                throw new IllegalArgumentException("编码中缺少字符: " + c);
+            }
         }
         return encoded.toString();
     }
+
 
     private String decodeContent(String encodedContent, HuffmanNode root) {
         StringBuilder decoded = new StringBuilder();
         HuffmanNode current = root;
 
-        // 逐字符解码
+        // 逐位解码
         for (char c : encodedContent.toCharArray()) {
             current = (c == '0') ? current.left : current.right;
-            if (current.left == null && current.right == null) {
-                decoded.append(current.character);  // 解码字符
-                current = root;
+            if (current.left == null && current.right == null) { // 到达叶子节点
+                decoded.append(current.character); // 解码出的字符
+                current = root; // 回到根节点
             }
         }
 
-        // 恢复空格和换行符
-        String decodedContent = decoded.toString();
-        decodedContent = decodedContent.replace("\\s", " ").replace("\\n", "\n");
-
-        return decodedContent;
+        return decoded.toString();
     }
+
+
 
     private void saveEncodedFile(String fileName, String encodedContent, boolean encrypted) throws IOException {
         BufferedWriter writer = new BufferedWriter(new FileWriter(fileName));
@@ -448,15 +465,20 @@ public class HuffmanXORApp extends JFrame {
 
 
     private String readFile(File file) throws IOException {
-        BufferedReader reader = new BufferedReader(new FileReader(file));
         StringBuilder content = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) {
-            content.append(line).append("\n");
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                content.append(line).append("\n"); // 保留换行符
+            }
         }
-        reader.close();
-        return content.toString().trim();
+        // 删除最后一个多余的换行符（可选）
+        if (content.length() > 0) {
+            content.deleteCharAt(content.length() - 1);
+        }
+        return content.toString();
     }
+
     // **读取频率表的方法**
     private Map<Character, Integer> readFrequencyTable(File file) {
         Map<Character, Integer> frequencies = new HashMap<>();
@@ -468,7 +490,8 @@ public class HuffmanXORApp extends JFrame {
                 String[] parts = line.split(":");
                 if (parts.length == 2) {
                     try {
-                        char character = parts[0].charAt(0);
+                        // 如果是 "NL"，则恢复为换行符
+                        char character = parts[0].equals("NL") ? '\n' : parts[0].charAt(0);
                         int frequency = Integer.parseInt(parts[1].trim());
                         frequencies.put(character, frequency);
                     } catch (NumberFormatException e) {
@@ -479,11 +502,13 @@ public class HuffmanXORApp extends JFrame {
             }
         } catch (IOException e) {
             e.printStackTrace();
-            // 可以在此处显示错误提示或记录日志
             showError("读取频率表文件时出错：" + e.getMessage());
         }
         return frequencies;
     }
+
+
+
 
 
     private void writeFile(String fileName, String content) throws IOException {
